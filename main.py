@@ -62,6 +62,8 @@ def CheckBullet(G:Items.Gun, P:Items.PlayerGroup):
         if P.GetPointPlayer(0).manacles == False:
             P.SetPoint(0)
         G.CreateBullet()
+        for p in P.PlayerList:
+            p.GetAiPoint().ClearPhoneIndex()
         BroadcastBullet(G, P)
         Items.Data.Round += 1
 
@@ -120,10 +122,11 @@ def AssignmentPersonaField(mode:int, scope:Var.Scope):
         print(f"恶魔选择了{"向你射击" if scope == Var.Scope.Counterpart else "向它自己射击"}")
 
 def JudgedHit(scope:Var.Scope, G:Items.Gun, P:Items.PlayerGroup, mode=0):
+    G.Check()
     match scope:
         case Var.Scope.Counterpart:
+            AssignmentPersonaField(mode, scope)
             if G.Shoot() == Var.BulletState.R:
-                AssignmentPersonaField(mode, scope)
                 if mode == 0:
                     print(f"砰!恶魔被射中了,造成了{Items.Data.Hit}点伤害")
                 elif mode == 1:
@@ -131,27 +134,21 @@ def JudgedHit(scope:Var.Scope, G:Items.Gun, P:Items.PlayerGroup, mode=0):
                     print(f"砰!你被恶魔射中了,受到了{Items.Data.Hit}点伤害")
                     Items.Data.Lose += 1
                 P.GetNextPlayerObject().Hit(Items.Data.Hit)
-                Items.Data.Hit = 1
-                return True
             else:
                 if mode == 0:
                     print(f"咔!是空包弹")
                 elif mode == 1:
                     time.sleep(1)
                     print(f"咔!恶魔射出了一发空包弹")
-                Items.Data.Hit = 1
-                return False
         case Var.Scope.Self:
+            AssignmentPersonaField(mode, scope)
             if G.Shoot() == Var.BulletState.R:
-                AssignmentPersonaField(mode, scope)
                 Items.Data.DamageTaken += Items.Data.Hit
                 if mode == 0:
                     print(f"砰!你射中了你自己,造成了{Items.Data.Hit}点伤害")
                 elif mode == 1:
                     print(f"砰!恶魔射中了它自己,造成了{Items.Data.Hit}点伤害")
                 P.GetCurrentPlayerObject().Hit(Items.Data.Hit)
-                Items.Data.Hit = 1
-                return True
             else:
                 if P.GetCurrentPlayerObject().Again != True:
                     P.GetCurrentPlayerObject().Again = True
@@ -159,73 +156,23 @@ def JudgedHit(scope:Var.Scope, G:Items.Gun, P:Items.PlayerGroup, mode=0):
                     print("咔!你打出了一发空包弹")
                 elif mode == 1:
                     print(f"咔!恶魔射出了一发空包弹")
-                Items.Data.Hit = 1
-                return False
-
-def AiItemsSelect(P:Items.PlayerGroup, G:Items.Gun, Probability:float, deep:int, Bul=None) -> float:
-    dep = deep + 1
-    p = P.GetCurrentPlayerObject()
-    pack = p.GetPack()
-    prob = Probability
-    nextbul = Bul
-    Beerexpectation = 0.65
-    Expectation = None
-    if len(pack.GetPackItems()) == 0 or deep >= 3:
-        return prob
-    if pack.HasItem(Items.Loupe) and nextbul == None:
-        nextbul = pack.UseItem(pack.GetItem(Items.Loupe))
-        if nextbul == Var.BulletState.R:
-            prob += 0.25
-        elif nextbul == Var.BulletState.B:
-            prob -= 0.25
-    if pack.HasItem(Items.Reversal):
-        if nextbul == Var.BulletState.B or random.random() >= 0.81:
-            nextbul = pack.UseItem(pack.GetItem(Items.Reversal))
-    if pack.HasItem(Items.DisposablePhone):
-        if random.random() >= 0.6:
-            tb = pack.UseItem(pack.GetItem(Items.DisposablePhone))
-            if tb[0] >= 2 and tb[1] == Var.BulletState.R:
-                Beerexpectation += 0.24
-    if pack.HasItem(Items.Beer):
-        if (nextbul == None and random.random() < Beerexpectation) or nextbul == Var.BulletState.B:
-            pack.UseItem(pack.GetItem(Items.Beer))
-            prob += 0.12
-            if random.random() > 0.69 and pack.HasItem(Items.Loupe):
-                nextbul = pack.UseItem(pack.GetItem(Items.Loupe))
-                if nextbul == Var.BulletState.R:
-                    prob += 0.25
-                elif nextbul == Var.BulletState.B:
-                    prob -= 0.25
-    if pack.HasItem(Items.Cigarette):
-        if Items.Data.GetCurrentLevelHp() > p.GetHp() and random.random() > 0.3:
-            pack.UseItem(pack.GetItem(Items.Cigarette))
-    elif pack.HasItem(Items.ExpiredMedicines):
-        if Items.Data.GetCurrentLevelHp() > p.GetHp() and random.random() >= 0.34:
-            pack.UseItem(pack.GetItem(Items.ExpiredMedicines))
-    if pack.HasItem(Items.Hacksaw):
-        if nextbul == Var.BulletState.R or random.random() > 0.91:
-            pack.UseItem(pack.GetItem(Items.Hacksaw))
-            prob += 0.15
-    if pack.HasItem(Items.Manacles):
-        if random.random() > 0.3 or (len(G.GetBulletList()) <= 3 and random.random() < 0.6):
-            pack.UseItem(pack.GetItem(Items.Manacles))
-            prob += 0.12
-    if random.random() > 0.45 or nextbul == Var.BulletState.B or nextbul ==  None:
-        AiItemsSelect(P, G, prob, dep, nextbul)
-    return prob
-
+    Items.Data.Hit = 1
+    G.Check()
+    for p in P.PlayerList:
+        p.GetAiPoint().NextBul.clear()
 
 def AiThinksFlow(P:Items.PlayerGroup, G:Items.Gun):
-    if CheckManacles(P.GetCurrentPlayerObject()):
+    p = P.GetCurrentPlayerObject()
+    ai = p.GetAiPoint()
+    if CheckManacles(p):
         return
     if P.GetCurrentPlayerObject().Again:
         P.GetCurrentPlayerObject().Again = False
     time.sleep(random.randint(1,2))
     print("====->Devil")
-    deep = 0
-    prob = 0.5
-    if len(P.GetCurrentPlayerObject().GetPack().GetPackItems()) != 0:
-        prob = AiItemsSelect(P, G, 0.5, deep)
+    prob = ai.CalculateProbability()
+    if len(p.GetPack().GetPackItems()) != 0:
+        prob = ai.AiItemsSelect(prob)
     if random.random() <= prob:
         JudgedHit(Var.Scope.Counterpart, G, P, 1)
     else:
@@ -257,7 +204,6 @@ def PlayerFlow(P:Items.PlayerGroup, G:Items.Gun):
             
     if P.GetCurrentPlayerObject().Again:
         PlayerFlow(P, G)
-
 
 def main():
     while True:

@@ -68,7 +68,7 @@ class Beer(Item):
 		print(f"{p.GetName()}退掉了一颗{Var.BulletName[shoot]}")
 		if P.GetCurrentPlayerObject().tag == Var.Tag.Player:
 			Data.DrinkBeer += 500
-		return shoot
+		return None
 
 class Hacksaw(Item):
 	Name = "Hacksaw"
@@ -138,6 +138,7 @@ class DisposablePhone(Item):
 class Gun:
 	def __init__(self):
 		self.BulletList = []
+		self.Shooted = []
 	def CreateBullet(self):
 		Data.Reload = True
 		self.BulletList = []
@@ -148,19 +149,25 @@ class Gun:
 		random.shuffle(self.BulletList)
 	def Shoot(self) -> Var.BulletState:
 		if len(self.GetBulletList()) <= 0:
+			self.Shooted.clear()
 			raise BulletEmpty
 		Data.Reload = False
 		shoot = self.BulletList[-1]
+		self.Shooted.append(shoot)
 		self.BulletList.pop()
 		return shoot
 	def GetWillShootBulletObject(self) -> Var.BulletState:
 		return self.BulletList[-1]
 	def GetBulletList(self) -> list[Var.BulletState]:
 		return self.BulletList
-	def Statistics(self) -> list[int]:
+	def Statistics(self, org=None) -> list[int]:
+		if org == None:
+			countPoint = self.BulletList
+		else:
+			countPoint = org
 		R = 0
 		B = 0
-		for i in self.BulletList:
+		for i in countPoint:
 			if i == Var.BulletState.R:
 				R += 1
 			elif i == Var.BulletState.B:
@@ -200,6 +207,92 @@ class StorageTable:
 			if isinstance(i, findItem):
 				return i
 
+class ListVariable:
+	def __init__(self, var):
+		self.value = var
+	def get(self):
+		return self.value
+	def set(self, var):
+		if isinstance(self.value, list):
+			self.value.append(var)
+		else:
+			self.value = var
+	def clear(self):
+		if isinstance(self.value, list):
+			self.value.clear()
+		else:
+			self.value = None
+
+class Ai:
+	def __init__(self, p:"Player", P:"PlayerGroup", G:Gun):
+		self.p = p
+		self.P = P
+		self.G = G
+		self.PhonePos:ListVariable = ListVariable([])
+		self.PhoneBul:ListVariable = ListVariable([])
+		self.deep = 0
+		self.NextBul:ListVariable = ListVariable(None)
+		self.BehaviorTable = [
+			(Loupe, self.NextBul.get() == None, [self.NextBul], 0.25),
+			(DisposablePhone, random.random() >= 0.6, [self.PhonePos, self.PhoneBul], 0),
+			(Reversal, self.NextBul.get() == Var.BulletState.B or random.random() >= 0.81, None, 0),
+			(Beer, (self.NextBul.get() == None and random.random() < 0.65) or self.NextBul.get() == Var.BulletState.B, [self.NextBul], 0),
+			(Cigarette, Data.GetCurrentLevelHp() > p.GetHp() and random.random() >= 0.2, [], 0),
+			(ExpiredMedicines, self.p.GetPack().HasItem(Cigarette) == False or random.random() >= 0.45, [], 0),
+			(Hacksaw, self.NextBul.get() == Var.BulletState.R or random.random() >= 0.91, [], 0.15),
+			(Manacles, random.random() > 0.3 or (len(self.G.GetBulletList()) <= 3 and random.random() < 0.6), [], 0)
+		]
+	def CalculateProbability(self) -> float:
+		stab = self.G.Statistics()
+		if (stab[0] + stab[1]) == 0:
+			raise BulletEmpty
+		return stab[0] / (stab[0] + stab[1])
+	def ClearPhoneIndex(self):
+		self.PhonePos.clear()
+		self.PhoneBul.clear()
+		self.NextBul.clear()
+	def CheckPhone(self, nextbul:Var.BulletState):
+		NowBulLen = len(self.G.GetBulletList())
+		for pos, var in zip(self.PhonePos.get(), self.PhoneBul.get()):
+			if NowBulLen == pos:
+				return var
+		return nextbul
+	def AiItemsSelect(self, Probability:float) -> float:
+		prob = Probability
+		pack = self.p.GetPack()
+		if self.NextBul == 1:
+			self.NextBul.set(Var.BulletState.R)
+		elif self.NextBul == 0:
+			self.NextBul.set(Var.BulletState.B)
+		self.NextBul.set(self.CheckPhone(self.NextBul.get()))
+		if self.deep >= 3:
+			self.deep = 0
+			return prob
+		for item, cond, eq, probv in self.BehaviorTable:
+			if pack.HasItem(item):
+				if cond:
+					ret = pack.UseItem(pack.GetItem(item))
+					if ret in Var.BulletState:
+						if ret == Var.BulletState.R:
+							prob += probv
+						elif ret == Var.BulletState.B:
+							prob -= probv
+					print(f"Ai used {item.Name}")
+					if ret != None:
+						if not isinstance(ret, list):
+							ret = [ret]
+						for i, v in zip(eq, ret):
+							i.set(v)
+					if isinstance(item, Beer):
+						self.NextBul.clear()
+		self.NextBul.set(self.CheckPhone(self.NextBul.get()))
+		if random.random() >= 0.2 + (self.deep * 0.1):
+			self.deep += 1
+			prob = self.AiItemsSelect(prob)
+		print(self.NextBul.get())
+		self.deep = 0
+		return prob
+
 class Player:
 	def __init__(self, tags:Var.Tag, name:str, P:"PlayerGroup", G:Gun):
 		self.tag = tags
@@ -210,10 +303,13 @@ class Player:
 		self.Pack = StorageTable(P, G)
 		self.knife = False
 		self.knifeTip = False
+		self.AiPoint = Ai(self, P, G)
 	def GetHp(self) -> int:
 		return self.HP
 	def GetName(self) -> str:
 		return self.name
+	def GetAiPoint(self) -> Ai:
+		return self.AiPoint
 	def Hit(self, hit=1) -> bool:
 		Data.Hit = 1
 		self.HP -= hit
@@ -245,6 +341,7 @@ class PlayerGroup:
 		self.PlayerList.append(Player(Var.Tag.Player, "你", self, G))
 		self.PlayerList.append(Player(Var.Tag.AI, "恶魔", self, G))
 		self.Index = 0
+		self.G = G
 	def SetupLevel(self):
 		self.SetPoint(0)
 		self.ClearEveryonePack()
@@ -289,4 +386,3 @@ class PlayerGroup:
 	def ClearEveryonePack(self):
 		for i in self.PlayerList:
 			i.GetPack().ClearPack()
-
