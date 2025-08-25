@@ -171,9 +171,8 @@ def AiThinksFlow(P:Items.PlayerGroup, G:Items.Gun):
     time.sleep(random.randint(1,2))
     print("====->Devil")
     prob = ai.CalculateProbability()
-    if len(p.GetPack().GetPackItems()) != 0:
-        prob = ai.AiItemsSelect(prob)
-    if random.random() <= prob:
+    prob = ai.AiItemsSelect(prob)
+    if random.random() < prob:
         JudgedHit(Var.Scope.Counterpart, G, P, 1)
     else:
         JudgedHit(Var.Scope.Self, G, P, 1)

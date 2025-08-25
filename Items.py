@@ -222,6 +222,9 @@ class ListVariable:
 			self.value.clear()
 		else:
 			self.value = None
+	def remove(self, x):
+		if isinstance(self.value, list):
+			self.value.remove(x)
 
 class Ai:
 	def __init__(self, p:"Player", P:"PlayerGroup", G:Gun):
@@ -233,14 +236,14 @@ class Ai:
 		self.deep = 0
 		self.NextBul:ListVariable = ListVariable(None)
 		self.BehaviorTable = [
-			(Loupe, self.NextBul.get() == None, [self.NextBul], 0.25),
-			(DisposablePhone, random.random() >= 0.6, [self.PhonePos, self.PhoneBul], 0),
-			(Reversal, self.NextBul.get() == Var.BulletState.B or random.random() >= 0.81, None, 0),
-			(Beer, (self.NextBul.get() == None and random.random() < 0.65) or self.NextBul.get() == Var.BulletState.B, [self.NextBul], 0),
-			(Cigarette, Data.GetCurrentLevelHp() > p.GetHp() and random.random() >= 0.2, [], 0),
-			(ExpiredMedicines, self.p.GetPack().HasItem(Cigarette) == False or random.random() >= 0.45, [], 0),
-			(Hacksaw, self.NextBul.get() == Var.BulletState.R or random.random() >= 0.91, [], 0.15),
-			(Manacles, random.random() > 0.3 or (len(self.G.GetBulletList()) <= 3 and random.random() < 0.6), [], 0)
+			(Loupe, lambda:self.NextBul.get() == None, [self.NextBul], 0.25),
+			(DisposablePhone, lambda:random.random() <= 0.8, [self.PhonePos, self.PhoneBul], 0),
+			(Reversal, lambda:self.NextBul.get() == Var.BulletState.B or random.random() >= 0.9, [], 0),
+			(Beer, lambda:(self.NextBul.get() == None and random.random() < 0.65) or self.NextBul.get() == Var.BulletState.B, [self.NextBul], 0),
+			(Cigarette, lambda:Data.GetCurrentLevelHp() > p.GetHp() and random.random() >= 0.1, [], 0),
+			(ExpiredMedicines, lambda:self.p.GetPack().HasItem(Cigarette) == False or random.random() >= 0.45, [], 0),
+			(Hacksaw, lambda:self.NextBul.get() == Var.BulletState.R or random.random() >= 0.6, None, 0.15),
+			(Manacles, lambda:random.random() >= 0.3 or (len(self.G.GetBulletList()) <= 3 and random.random() <= 0.6), [], 0)
 		]
 	def CalculateProbability(self) -> float:
 		stab = self.G.Statistics()
@@ -252,17 +255,25 @@ class Ai:
 		self.PhoneBul.clear()
 		self.NextBul.clear()
 	def CheckPhone(self, nextbul:Var.BulletState):
+		pathP = []
+		pathV = []
+		ret = nextbul
 		NowBulLen = len(self.G.GetBulletList())
 		for pos, var in zip(self.PhonePos.get(), self.PhoneBul.get()):
 			if NowBulLen == pos:
-				return var
-		return nextbul
+				ret = var
+				pathP.append(pos)
+				pathV.append(var)
+		for pos, var in zip(pathP, pathV):
+			self.PhonePos.remove(pos)
+			self.PhoneBul.remove(var)
+		return ret
 	def AiItemsSelect(self, Probability:float) -> float:
 		prob = Probability
 		pack = self.p.GetPack()
-		if self.NextBul == 1:
+		if prob == 1:
 			self.NextBul.set(Var.BulletState.R)
-		elif self.NextBul == 0:
+		elif prob == 0:
 			self.NextBul.set(Var.BulletState.B)
 		self.NextBul.set(self.CheckPhone(self.NextBul.get()))
 		if self.deep >= 3:
@@ -270,14 +281,17 @@ class Ai:
 			return prob
 		for item, cond, eq, probv in self.BehaviorTable:
 			if pack.HasItem(item):
-				if cond:
+				if cond():
 					ret = pack.UseItem(pack.GetItem(item))
+					self.NextBul.set(self.CheckPhone(self.NextBul.get()))
 					if ret in Var.BulletState:
 						if ret == Var.BulletState.R:
 							prob += probv
 						elif ret == Var.BulletState.B:
 							prob -= probv
-					print(f"Ai used {item.Name}")
+					if isinstance(item, Reversal):
+						if self.NextBul.get() != None:
+							self.NextBul.set(ret)
 					if ret != None:
 						if not isinstance(ret, list):
 							ret = [ret]
@@ -285,12 +299,16 @@ class Ai:
 							i.set(v)
 					if isinstance(item, Beer):
 						self.NextBul.clear()
-		self.NextBul.set(self.CheckPhone(self.NextBul.get()))
-		if random.random() >= 0.2 + (self.deep * 0.1):
+					if eq == None:
+						prob += prob
+		if random.random() >= 0.2:
 			self.deep += 1
 			prob = self.AiItemsSelect(prob)
-		print(self.NextBul.get())
 		self.deep = 0
+		if self.NextBul.get() == Var.BulletState.R:
+			prob = 1
+		elif self.NextBul.get() == Var.BulletState.B:
+			prob = 0
 		return prob
 
 class Player:
