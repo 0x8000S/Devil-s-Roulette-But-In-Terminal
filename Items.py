@@ -31,6 +31,7 @@ class Data:
 	RoundHP = [2, 4, 6]
 	Reload = False
 	isGame = True
+	AiFight = False
 	Winner:"Player" = None
 	@classmethod
 	def Rest(cls):
@@ -48,14 +49,27 @@ class Data:
 		cls.Reload = False
 		cls.isGame = True
 		cls.Winner = None
+		cls.AiFight = False
 	@classmethod
 	def GetCurrentLevelHp(cls) -> int:
 		return cls.RoundHP[cls.Level-1]
+
+class PlayerData:
+	def __init__(self):
+		self.DrinkBeer = 0
+		self.UseItem = 0
+		self.DamageTaken = 0
+		self.PillsHit = 0
+		self.BulletsFired = 0
+		self.Lose = 0
+		self.PlunderedFunds = 0
+		self.Reload = False
 
 class Item:
 	Name = "Item"
 	def Exce(self, P:"PlayerGroup", G:"Gun"):
 		p = P.GetCurrentPlayerObject()
+		p.Data.UseItem += 1
 		print(f"{p.GetName()}使用了{self.Name}")
 		time.sleep(0.2)
 
@@ -67,7 +81,7 @@ class Beer(Item):
 		shoot = G.Shoot()
 		print(f"{p.GetName()}退掉了一颗{Var.BulletName[shoot]}")
 		if P.GetCurrentPlayerObject().tag == Var.Tag.Player:
-			Data.DrinkBeer += 500
+			p.Data.DrinkBeer += 500
 		return None
 
 class Hacksaw(Item):
@@ -182,11 +196,12 @@ class StorageTable:
 		self.Pack:list[Item] = []
 		self.G = G
 		self.P = P
+		self.p = P.GetCurrentPlayerObject()
 	def AddItem(self, add_item:Item):
 		if len(self.Pack) < 8:
 			self.Pack.append(add_item)
 		else:
-			print(f"{colorama.Back.RED}背包已满,道具{add_item.Name}已弃置!")
+			print(f"{colorama.Back.RED}{self.p.GetName()}背包已满,道具{add_item.Name}已弃置!")
 	def UseItem(self, which:Item):
 		if len(self.G.GetBulletList()) <= 0:
 			raise BulletEmpty
@@ -322,6 +337,7 @@ class Player:
 		self.knife = False
 		self.knifeTip = False
 		self.AiPoint = Ai(self, P, G)
+		self.Data = PlayerData()
 	def GetHp(self) -> int:
 		return self.HP
 	def GetName(self) -> str:
@@ -329,7 +345,7 @@ class Player:
 	def GetAiPoint(self) -> Ai:
 		return self.AiPoint
 	def Hit(self, hit=1) -> bool:
-		Data.Hit = 1
+		self.Data.Hit = 1
 		self.HP -= hit
 		if self.knife:
 			self.HP = 0
@@ -354,10 +370,15 @@ class Player:
 		return self.knife
 
 class PlayerGroup:
-	def __init__(self, G:Gun):
+	def __init__(self, G:Gun, mode:int=0):
 		self.PlayerList:list[Player] = []
-		self.PlayerList.append(Player(Var.Tag.Player, "你", self, G))
-		self.PlayerList.append(Player(Var.Tag.AI, "恶魔", self, G))
+		if mode == 0:
+			self.PlayerList.append(Player(Var.Tag.Player, "你", self, G))
+			self.PlayerList.append(Player(Var.Tag.AI, "恶魔", self, G))
+		elif mode == 1:
+			self.PlayerList.append(Player(Var.Tag.AI, "Satan", self, G))
+			self.PlayerList.append(Player(Var.Tag.AI, "Mammon", self, G))
+			Data.AiFight = True
 		self.Index = 0
 		self.G = G
 	def SetupLevel(self):
